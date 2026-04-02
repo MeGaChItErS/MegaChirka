@@ -426,7 +426,11 @@
       }
 
       scene.onBeforeRenderObservable.add(() => {
-        const dt = engine.getDeltaTime() / 16.666;
+        // Без ограничения dt первый кадр (или возврат во вкладку) может дать гигантский шаг —
+        // travel перескакивает все уровни и сразу срабатывает «Победа» и экран «Играть снова».
+        const rawDt = engine.getDeltaTime() / 16.666;
+        const dt = Math.min(Math.max(rawDt, 0.001), 3);
+
         if (!running) return;
 
         if (keys.left) { setLane(-1); keys.left = false; }
