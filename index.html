@@ -310,14 +310,9 @@
         { name: "5", travelLen: 320, speedCap: 1.35, speedGrow: 0.00036, obstacleSpawnMin: 10, obstacleSpawnMax: 20, coinSpawnMin: 28, coinSpawnMax: 54, hMin: 1.35, hMax: 2.60, obstacleColor: [1.00, 0.28, 0.10], doubleChance: 0.38, coinValue: 45, scoreMul: 1.45 },
       ];
 
-      const levelEnds = (() => {
-        const ends = [];
-        let sum = 0;
-        for (const l of LEVELS) { sum += l.travelLen; ends.push(sum); }
-        return ends;
-      })();
       let levelIndex = 0;
-      let travel = 0;
+      /** Пробег внутри текущего уровня (не общий с начала игры — так безопаснее). */
+      let distanceInLevel = 0;
 
       const gravity = -0.032;
       const jumpPower = 0.55;
@@ -380,7 +375,7 @@
         speed = 0.34;
         lane = 1;
         jumpVel = 0;
-        travel = 0;
+        distanceInLevel = 0;
         levelIndex = 0;
         yFloor = presets[selectedPresetIdx].yFloor;
         y = yFloor;
@@ -426,10 +421,11 @@
       }
 
       scene.onBeforeRenderObservable.add(() => {
-        // Без ограничения dt первый кадр (или возврат во вкладку) может дать гигантский шаг —
-        // travel перескакивает все уровни и сразу срабатывает «Победа» и экран «Играть снова».
+        // Без ограничения dt первый кадр (или возврат во вкладку) может дать гигантский шаг времени.
+        // dt — в «условных кадрах» (~1 при 60 FPS). Ограничиваем жёстко: иначе один кадр
+        // может прокрутить весь прогресс уровней → мгновенная «Победа» и счёт 0.
         const rawDt = engine.getDeltaTime() / 16.666;
-        const dt = Math.min(Math.max(rawDt, 0.001), 3);
+        const dt = Math.min(Math.max(rawDt, 0.001), 2.5);
 
         if (!running) return;
 
@@ -455,38 +451,41 @@
         speed = Math.min(cfgBefore.speedCap, speed + cfgBefore.speedGrow * dt);
         speedEl.textContent = (speed / 0.34).toFixed(1);
 
-        travel += speed * dt * 2.1;
+        const cfg = currentLevel();
+        score += 0.06 * dt * (speed * 4) * cfg.scoreMul;
+        scoreEl.textContent = String(Math.floor(score));
 
-        // Переход по уровням
-        const prevLevel = levelIndex;
-        while (levelIndex < LEVELS.length && travel >= levelEnds[levelIndex]) {
+        // Дистанция уровня: ограничиваем шаг за кадр и максимум один переход уровня за кадр —
+        // иначе снова возможна «победа» за доли секунды при скачке времени.
+        const distStepRaw = speed * dt * 2.1;
+        const distStep = Math.min(Math.max(distStepRaw, 0), 5);
+        distanceInLevel += distStep;
+
+        if (levelIndex < LEVELS.length && distanceInLevel >= LEVELS[levelIndex].travelLen) {
+          distanceInLevel -= LEVELS[levelIndex].travelLen;
           levelIndex++;
+          if (levelIndex < LEVELS.length) {
+            setLevelVisuals(levelIndex);
+            spawnTimer = Math.min(spawnTimer, 5);
+            coinTimer = Math.min(coinTimer, 5);
+            levelEl.textContent = String(levelIndex + 1);
+          }
         }
         if (levelIndex >= LEVELS.length) {
           endGame(true);
           return;
         }
-        if (levelIndex !== prevLevel) {
-          setLevelVisuals(levelIndex);
-          // Подкидываем таймеры, чтобы новый уровень сразу ощущался
-          spawnTimer = Math.min(spawnTimer, 5);
-          coinTimer = Math.min(coinTimer, 5);
-          levelEl.textContent = String(levelIndex + 1);
-        }
 
-        const cfg = currentLevel();
-        score += 0.06 * dt * (speed * 4) * cfg.scoreMul;
-        scoreEl.textContent = String(Math.floor(score));
-
+        const cfgSpawn = currentLevel();
         spawnTimer -= dt;
         coinTimer -= dt;
         if (spawnTimer <= 0) {
           spawnLevelWave();
-          spawnTimer = rand(cfg.obstacleSpawnMin, cfg.obstacleSpawnMax);
+          spawnTimer = rand(cfgSpawn.obstacleSpawnMin, cfgSpawn.obstacleSpawnMax);
         }
         if (coinTimer <= 0) {
           spawnCoin();
-          coinTimer = rand(cfg.coinSpawnMin, cfg.coinSpawnMax);
+          coinTimer = rand(cfgSpawn.coinSpawnMin, cfgSpawn.coinSpawnMax);
         }
 
         for (let i = obstacles.length - 1; i >= 0; i--) {
