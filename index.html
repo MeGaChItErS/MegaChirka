@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cube Rush 3D</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0d1321;
+      font-family: Inter, Arial, sans-serif;
+      color: #fff;
+    }
+    #gameCanvas {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      display: block;
+    }
+    #hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+    }
+    #topBar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 18px;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+    }
+    #hint {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      background: rgba(6, 10, 20, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 14px;
+      padding: 20px 24px;
+      max-width: 92vw;
+      pointer-events: auto;
+      backdrop-filter: blur(4px);
+    }
+    #hint h1 {
+      margin: 0 0 10px;
+      font-size: 24px;
+    }
+    #hint p {
+      margin: 8px 0;
+      line-height: 1.4;
+      opacity: 0.95;
+    }
+    #hint button {
+      margin-top: 10px;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      color: #0b1220;
+      background: #ffd166;
+    }
+    #touchControls {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: none;
+      justify-content: space-between;
+      padding: 14px;
+      pointer-events: auto;
+      user-select: none;
+    }
+    .touchBtn {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 24px;
+      font-weight: 800;
+      display: grid;
+      place-items: center;
+    }
+    .touchGroup {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    @media (max-width: 900px) {
+      #touchControls { display: flex; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <div id="hud">
+    <div id="topBar">
+      <div>Очки: <span id="score">0</span></div>
+      <div>Рекорд: <span id="best">0</span></div>
+      <div>Скорость: <span id="speed">1.0</span>x</div>
+    </div>
+    <div id="hint">
+      <h1>Cube Rush 3D</h1>
+      <p>Уклоняйся от красных блоков, собирай золотые шары.</p>
+      <p>Управление: <b>A/D</b> или <b>←/→</b>, прыжок <b>Space</b>.</p>
+      <p>На телефоне: кнопки внизу экрана.</p>
+      <button id="startBtn">Старт</button>
+    </div>
+    <div id="touchControls">
+      <div class="touchGroup">
+        <div class="touchBtn" data-key="left">◀</div>
+        <div class="touchBtn" data-key="right">▶</div>
+      </div>
+      <div class="touchGroup">
+        <div class="touchBtn" data-key="jump">▲</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script>
+    (() => {
+      const canvas = document.getElementById("gameCanvas");
+      const scoreEl = document.getElementById("score");
+      const bestEl = document.getElementById("best");
+      const speedEl = document.getElementById("speed");
+      const hint = document.getElementById("hint");
+      const startBtn = document.getElementById("startBtn");
+
+      const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color4(0.05, 0.08, 0.14, 1);
+
+      const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, 1.0, 24, new BABYLON.Vector3(0, 2.2, 0), scene);
+      camera.fov = 0.95;
+      camera.lowerRadiusLimit = 18;
+      camera.upperRadiusLimit = 26;
+      camera.attachControl(canvas, true);
+      camera.inputs.clear();
+
+      const light1 = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
+      light1.intensity = 0.95;
+      const light2 = new BABYLON.DirectionalLight("dir", new BABYLON.Vector3(-0.6, -1, 0.5), scene);
+      light2.position = new BABYLON.Vector3(12, 20, -10);
+      light2.intensity = 0.7;
+
+      const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+      groundMat.diffuseColor = new BABYLON.Color3(0.13, 0.18, 0.28);
+      groundMat.specularColor = new BABYLON.Color3(0, 0, 0);
+
+      const laneMat = new BABYLON.StandardMaterial("laneMat", scene);
+      laneMat.emissiveColor = new BABYLON.Color3(0.2, 0.45, 0.8);
+
+      const playerMat = new BABYLON.StandardMaterial("playerMat", scene);
+      playerMat.diffuseColor = new BABYLON.Color3(0.3, 0.9, 1.0);
+      playerMat.emissiveColor = new BABYLON.Color3(0.02, 0.12, 0.16);
+
+      const obstacleMat = new BABYLON.StandardMaterial("obstacleMat", scene);
+      obstacleMat.diffuseColor = new BABYLON.Color3(0.95, 0.22, 0.25);
+
+      const coinMat = new BABYLON.StandardMaterial("coinMat", scene);
+      coinMat.diffuseColor = new BABYLON.Color3(1.0, 0.86, 0.3);
+      coinMat.emissiveColor = new BABYLON.Color3(0.25, 0.18, 0.02);
+
+      const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 12, height: 360 }, scene);
+      ground.position.z = 130;
+      ground.material = groundMat;
+
+      const lanePositions = [-3.2, 0, 3.2];
+      for (let i = -12; i < 80; i++) {
+        const line = BABYLON.MeshBuilder.CreateBox("line" + i, { width: 0.2, height: 0.03, depth: 1.2 }, scene);
+        line.position.set(-1.6, 0.03, i * 4 + 2);
+        line.material = laneMat;
+        const line2 = line.clone("line2_" + i);
+        line2.position.x = 1.6;
+      }
+
+      const player = BABYLON.MeshBuilder.CreateBox("player", { size: 1.25 }, scene);
+      player.position.set(0, 0.65, 2);
+      player.material = playerMat;
+
+      const shadow = BABYLON.MeshBuilder.CreateDisc("shadow", { radius: 0.9, tessellation: 32 }, scene);
+      shadow.rotation.x = Math.PI / 2;
+      shadow.position.y = 0.02;
+      shadow.material = new BABYLON.StandardMaterial("shadowMat", scene);
+      shadow.material.diffuseColor = new BABYLON.Color3(0, 0, 0);
+      shadow.material.alpha = 0.25;
+
+      const sky = BABYLON.MeshBuilder.CreateBox("sky", { size: 700 }, scene);
+      const skyMat = new BABYLON.StandardMaterial("skyMat", scene);
+      skyMat.backFaceCulling = false;
+      skyMat.disableLighting = true;
+      skyMat.emissiveColor = new BABYLON.Color3(0.05, 0.08, 0.14);
+      sky.material = skyMat;
+
+      let running = false;
+      let gameOver = false;
+      let score = 0;
+      let best = Number(localStorage.getItem("cubeRushBest") || 0);
+      bestEl.textContent = String(best);
+
+      let speed = 0.34;
+      let lane = 1;
+      let jumpVel = 0;
+      let y = 0.65;
+
+      const gravity = -0.032;
+      const jumpPower = 0.55;
+      const obstacles = [];
+      const coins = [];
+      let spawnTimer = 0;
+      let coinTimer = 0;
+
+      const keys = { left: false, right: false, jump: false };
+
+      function setLane(delta) {
+        lane = Math.max(0, Math.min(2, lane + delta));
+      }
+
+      function spawnObstacle() {
+        const laneIndex = Math.floor(Math.random() * 3);
+        const h = 0.8 + Math.random() * 1.9;
+        const obstacle = BABYLON.MeshBuilder.CreateBox("obs", { width: 2.2, height: h, depth: 2.2 }, scene);
+        obstacle.position.set(lanePositions[laneIndex], h / 2, 85 + Math.random() * 25);
+        obstacle.material = obstacleMat;
+        obstacles.push(obstacle);
+      }
+
+      function spawnCoin() {
+        const laneIndex = Math.floor(Math.random() * 3);
+        const coin = BABYLON.MeshBuilder.CreateSphere("coin", { diameter: 0.9, segments: 16 }, scene);
+        coin.position.set(lanePositions[laneIndex], 0.95 + Math.random() * 2.0, 80 + Math.random() * 28);
+        coin.material = coinMat;
+        coins.push(coin);
+      }
+
+      function resetGame() {
+        running = true;
+        gameOver = false;
+        score = 0;
+        speed = 0.34;
+        lane = 1;
+        jumpVel = 0;
+        y = 0.65;
+        player.position.set(0, y, 2);
+        scoreEl.textContent = "0";
+        speedEl.textContent = "1.0";
+        spawnTimer = 0;
+        coinTimer = 0;
+        obstacles.splice(0).forEach(o => o.dispose());
+        coins.splice(0).forEach(c => c.dispose());
+      }
+
+      function endGame() {
+        running = false;
+        gameOver = true;
+        best = Math.max(best, Math.floor(score));
+        localStorage.setItem("cubeRushBest", String(best));
+        bestEl.textContent = String(best);
+        hint.innerHTML = `
+          <h1>Игра окончена</h1>
+          <p>Твой счёт: <b>${Math.floor(score)}</b></p>
+          <p>Рекорд: <b>${best}</b></p>
+          <button id="startBtn">Играть снова</button>
+        `;
+        hint.style.display = "block";
+        document.getElementById("startBtn").onclick = () => {
+          hint.style.display = "none";
+          resetGame();
+        };
+      }
+
+      function intersects(a, b, pad = 0.0) {
+        const aa = a.getBoundingInfo().boundingBox;
+        const bb = b.getBoundingInfo().boundingBox;
+        return (
+          aa.minimumWorld.x + pad <= bb.maximumWorld.x &&
+          aa.maximumWorld.x - pad >= bb.minimumWorld.x &&
+          aa.minimumWorld.y + pad <= bb.maximumWorld.y &&
+          aa.maximumWorld.y - pad >= bb.minimumWorld.y &&
+          aa.minimumWorld.z + pad <= bb.maximumWorld.z &&
+          aa.maximumWorld.z - pad >= bb.minimumWorld.z
+        );
+      }
+
+      scene.onBeforeRenderObservable.add(() => {
+        const dt = engine.getDeltaTime() / 16.666;
+        if (!running) return;
+
+        if (keys.left) { setLane(-1); keys.left = false; }
+        if (keys.right) { setLane(1); keys.right = false; }
+        if (keys.jump && y <= 0.66) jumpVel = jumpPower;
+
+        const targetX = lanePositions[lane];
+        player.position.x += (targetX - player.position.x) * Math.min(1, 0.25 * dt);
+
+        jumpVel += gravity * dt;
+        y += jumpVel * dt;
+        if (y < 0.65) { y = 0.65; jumpVel = 0; }
+        player.position.y = y;
+        player.rotation.z = (player.position.x - targetX) * 0.12;
+        player.rotation.x += 0.03 * dt;
+        shadow.position.x = player.position.x;
+        shadow.scaling.x = 1 + Math.min(1.4, Math.max(0, y - 0.65)) * 0.45;
+        shadow.scaling.y = shadow.scaling.x;
+        shadow.material.alpha = 0.35 - Math.min(0.25, (y - 0.65) * 0.2);
+
+        speed = Math.min(1.3, speed + 0.00025 * dt);
+        speedEl.textContent = (speed / 0.34).toFixed(1);
+        score += 0.06 * dt * (speed * 4);
+        scoreEl.textContent = String(Math.floor(score));
+
+        spawnTimer -= dt;
+        coinTimer -= dt;
+        if (spawnTimer <= 0) {
+          spawnObstacle();
+          spawnTimer = Math.max(20, 50 - speed * 20) + Math.random() * 16;
+        }
+        if (coinTimer <= 0) {
+          spawnCoin();
+          coinTimer = 40 + Math.random() * 30;
+        }
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          const o = obstacles[i];
+          o.position.z -= speed * dt;
+          if (intersects(player, o, 0.06)) {
+            endGame();
+            return;
+          }
+          if (o.position.z < -20) {
+            o.dispose();
+            obstacles.splice(i, 1);
+          }
+        }
+
+        for (let i = coins.length - 1; i >= 0; i--) {
+          const c = coins[i];
+          c.position.z -= speed * dt;
+          c.rotation.y += 0.1 * dt;
+          if (intersects(player, c, 0.08)) {
+            score += 25;
+            c.dispose();
+            coins.splice(i, 1);
+          } else if (c.position.z < -20) {
+            c.dispose();
+            coins.splice(i, 1);
+          }
+        }
+
+        camera.target.x = player.position.x * 0.6;
+        camera.target.y = 1.8 + (y - 0.65) * 0.3;
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.repeat) return;
+        if (e.code === "ArrowLeft" || e.code === "KeyA") keys.left = true;
+        if (e.code === "ArrowRight" || e.code === "KeyD") keys.right = true;
+        if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") keys.jump = true;
+      });
+      window.addEventListener("keyup", (e) => {
+        if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") keys.jump = false;
+      });
+
+      document.querySelectorAll(".touchBtn").forEach((btn) => {
+        const key = btn.dataset.key;
+        const down = (ev) => {
+          ev.preventDefault();
+          if (key === "left") keys.left = true;
+          if (key === "right") keys.right = true;
+          if (key === "jump") keys.jump = true;
+        };
+        const up = (ev) => {
+          ev.preventDefault();
+          if (key === "jump") keys.jump = false;
+        };
+        btn.addEventListener("pointerdown", down);
+        btn.addEventListener("pointerup", up);
+        btn.addEventListener("pointercancel", up);
+        btn.addEventListener("pointerleave", up);
+      });
+
+      startBtn.onclick = () => {
+        hint.style.display = "none";
+        resetGame();
+      };
+
+      engine.runRenderLoop(() => scene.render());
+      window.addEventListener("resize", () => engine.resize());
+    })();
+  </script>
+</body>
+</html>
